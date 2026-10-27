@@ -17,11 +17,11 @@
     "server": {
       "root": "apps/server",
       "framework": "fastify",
-      "entrypoint": "dist/vercel.js",
+      "entrypoint": "src/vercel.ts",
       "installCommand": "cd ../.. && npm install",
       "buildCommand": "cd ../.. && npm run build -w @local-mcp/shared && npm run build -w @local-mcp/server",
       "functions": {
-        "dist/vercel.js": {
+        "src/vercel.ts": {
           "maxDuration": 60,
           "memory": 1024
         }
