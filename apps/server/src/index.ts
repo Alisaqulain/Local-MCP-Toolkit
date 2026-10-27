@@ -13,15 +13,18 @@ import { registerMcpHttpTransport, closeAllMcpSessions } from './mcp/transport.j
 import { createMcpServer } from './mcp/server.js';
 import { mcpClientService } from './mcp/client.js';
 import { registerApiRoutes } from './routes/api.js';
+import { registerWebStatic } from './routes/static.js';
 import { ensureSettingsDefaults, pruneExecutions } from './modules/statistics/service.js';
 import { getRegistrySize } from './mcp/tool-registry.js';
 
 async function main() {
   const env = getEnv();
 
-  // Bind loopback only by default
-  if (env.HOST !== '127.0.0.1' && env.HOST !== 'localhost' && env.HOST !== '::1') {
-    logger.warn({ host: env.HOST }, 'HOST is not loopback — ensure you understand the security implications');
+  if (!env.allowNonLoopback && env.HOST !== '127.0.0.1' && env.HOST !== 'localhost' && env.HOST !== '::1') {
+    logger.warn(
+      { host: env.HOST },
+      'HOST is not loopback — set ALLOW_NON_LOOPBACK=true only if you understand the security implications',
+    );
   }
 
   ensureWorkspaceExists(env.workspaceAbsolute);
@@ -36,7 +39,7 @@ async function main() {
   const app = Fastify({
     logger: false,
     bodyLimit: env.REQUEST_BODY_LIMIT,
-    trustProxy: false,
+    trustProxy: env.allowNonLoopback,
   });
 
   await app.register(helmet, {
@@ -46,11 +49,18 @@ async function main() {
 
   await app.register(cors, {
     origin: (origin, cb) => {
-      if (!origin) return cb(null, true); // non-browser / same-origin
+      if (!origin) return cb(null, true); // same-origin / non-browser
       cb(null, env.allowedOrigins.includes(origin));
     },
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Session-Token', 'X-Request-Id', 'Mcp-Session-Id', 'mcp-session-id'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Session-Token',
+      'X-Request-Id',
+      'Mcp-Session-Id',
+      'mcp-session-id',
+    ],
     exposedHeaders: ['Mcp-Session-Id', 'mcp-session-id', 'X-Request-Id'],
   });
 
@@ -63,10 +73,13 @@ async function main() {
   await registerSecurity(app);
   app.addHook('preHandler', requireSession);
 
-  // MCP Streamable HTTP (real protocol)
+  // MCP Streamable HTTP (real protocol) — before static SPA fallback
   registerMcpHttpTransport(app);
 
   await registerApiRoutes(app);
+
+  // Production: same Fastify process serves Vite build + SPA fallback
+  const servingWeb = await registerWebStatic(app);
 
   const token = getSessionToken();
 
@@ -94,18 +107,22 @@ async function main() {
       workspace: env.workspaceAbsolute,
       database: env.databaseAbsolute,
       tools: getRegistrySize(),
+      servingWeb,
+      singleOrigin: servingWeb,
     },
     `${APP_NAME} listening`,
   );
   logger.info('Session token available at GET /api/session');
-  // Keep token visible once in logs for local DX (loopback only)
   if (env.HOST === '127.0.0.1' || env.HOST === 'localhost') {
     logger.info({ sessionTokenPreview: token.slice(0, 8) + '…' }, 'Session token ready');
   }
+  if (servingWeb) {
+    logger.info(`Dashboard: http://${env.HOST === '0.0.0.0' ? '127.0.0.1' : env.HOST}:${env.PORT}/`);
+  }
 
-  // Warm MCP client connection after listen
   try {
-    await mcpClientService.connect(`http://${env.HOST}:${env.PORT}`);
+    const connectHost = env.HOST === '0.0.0.0' ? '127.0.0.1' : env.HOST;
+    await mcpClientService.connect(`http://${connectHost}:${env.PORT}`);
     logger.info('Dashboard MCP client connected');
   } catch (err) {
     logger.warn({ err }, 'MCP client warm-connect failed (will retry on demand)');

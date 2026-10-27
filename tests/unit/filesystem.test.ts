@@ -2,33 +2,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { setEnvForTests, type Env } from '../../apps/server/src/config/env.js';
+import { setEnvForTests } from '../../apps/server/src/config/env.js';
 import * as fsService from '../../apps/server/src/modules/filesystem/service.js';
+import { testEnv } from '../helpers/env.js';
 
-function fakeEnv(workspace: string): Env {
-  return {
-    HOST: '127.0.0.1',
-    PORT: 3847,
-    WEB_ORIGIN: 'http://127.0.0.1:5173',
-    WORKSPACE_PATH: workspace,
-    DATABASE_PATH: ':memory:',
-    LOG_LEVEL: 'error',
-    MAX_FILE_READ_BYTES: 1024 * 64,
-    MAX_SEARCH_RESULTS: 50,
-    MAX_QUERY_ROWS: 100,
-    REQUEST_BODY_LIMIT: 1_000_000,
-    LOCAL_AI_ENABLED: false,
-    LOCAL_AI_BASE_URL: 'http://127.0.0.1:11434',
-    LOCAL_AI_MODEL: '',
-    ALLOWED_ORIGINS: 'http://127.0.0.1:5173',
-    LOG_RETENTION_DAYS: 30,
+function fakeEnv(workspace: string) {
+  return testEnv({
     workspaceAbsolute: workspace,
     databaseAbsolute: ':memory:',
-    allowedOrigins: ['http://127.0.0.1:5173'],
-    allowedExtensions: ['.txt', '.md', '.json'],
-    excludedDirectories: ['node_modules', '.git'],
-    projectRoot: workspace,
-  };
+    MAX_FILE_READ_BYTES: 1024 * 64,
+  });
 }
 
 describe('filesystem service', () => {

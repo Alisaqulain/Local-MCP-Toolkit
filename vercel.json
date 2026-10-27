@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm install",
+  "buildCommand": "node -e \"console.error('\\nLocal MCP Toolkit requires a persistent Node.js process.\\nReason: SQLite + workspace filesystem + in-memory MCP sessions.\\nVercel serverless (and multi-service Vercel) is not supported.\\nUse: npm run build && npm start on a VPS/Docker/local host.\\nSee docs/DEPLOYMENT.md\\n'); process.exit(1)\"",
+  "outputDirectory": "apps/web/dist"
+}

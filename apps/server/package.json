@@ -16,6 +16,7 @@
     "@fastify/cors": "^11.0.0",
     "@fastify/helmet": "^13.0.1",
     "@fastify/rate-limit": "^10.2.2",
+    "@fastify/static": "^10.1.8",
     "@local-mcp/shared": "*",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "dotenv": "^16.4.7",

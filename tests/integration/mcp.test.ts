@@ -6,11 +6,12 @@ import Fastify from 'fastify';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { openDatabase, closeDatabase, setDatabase } from '../../apps/server/src/db/database.js';
-import { setEnvForTests, type Env } from '../../apps/server/src/config/env.js';
+import { setEnvForTests } from '../../apps/server/src/config/env.js';
 import { registerMcpHttpTransport, closeAllMcpSessions } from '../../apps/server/src/mcp/transport.js';
 import { createMcpServer } from '../../apps/server/src/mcp/server.js';
 import { ensureSettingsDefaults } from '../../apps/server/src/modules/statistics/service.js';
 import { getRegistrySize } from '../../apps/server/src/mcp/tool-registry.js';
+import { testEnv } from '../helpers/env.js';
 
 describe('MCP protocol integration', () => {
   let baseUrl = '';
@@ -22,30 +23,14 @@ describe('MCP protocol integration', () => {
     workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-int-'));
     fs.writeFileSync(path.join(workspace, 'sample.txt'), 'integration sample');
     const dbPath = path.join(workspace, 'test.sqlite');
-    const env = {
-      HOST: '127.0.0.1',
-      PORT: 0,
-      WEB_ORIGIN: 'http://127.0.0.1:5173',
-      WORKSPACE_PATH: workspace,
-      DATABASE_PATH: dbPath,
-      LOG_LEVEL: 'error' as const,
-      MAX_FILE_READ_BYTES: 1_048_576,
-      MAX_SEARCH_RESULTS: 50,
-      MAX_QUERY_ROWS: 100,
-      REQUEST_BODY_LIMIT: 1_000_000,
-      LOCAL_AI_ENABLED: false,
-      LOCAL_AI_BASE_URL: 'http://127.0.0.1:11434',
-      LOCAL_AI_MODEL: '',
-      ALLOWED_ORIGINS: 'http://127.0.0.1:5173',
-      LOG_RETENTION_DAYS: 30,
-      workspaceAbsolute: workspace,
-      databaseAbsolute: dbPath,
-      allowedOrigins: ['http://127.0.0.1:5173'],
-      allowedExtensions: ['.txt', '.md', '.json'],
-      excludedDirectories: ['node_modules'],
-      projectRoot: workspace,
-    } satisfies Env;
-    setEnvForTests(env);
+    setEnvForTests(
+      testEnv({
+        workspaceAbsolute: workspace,
+        databaseAbsolute: dbPath,
+        PORT: 0,
+        projectRoot: workspace,
+      }),
+    );
     setDatabase(openDatabase(dbPath));
     ensureSettingsDefaults();
     createMcpServer();

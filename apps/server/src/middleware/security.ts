@@ -9,20 +9,46 @@ declare module 'fastify' {
   }
 }
 
+function hostAllowed(hostHeader: string | undefined): boolean {
+  if (!hostHeader) return false;
+  const env = getEnv();
+  const host = hostHeader.toLowerCase();
+  const hostname = host.split(':')[0] ?? host;
+
+  if (isLoopbackHost(hostHeader)) return true;
+
+  if (!env.allowNonLoopback) return false;
+
+  if (env.allowedHosts.length === 0) {
+    // Non-loopback allowed but no explicit list — accept any host (operator opted in)
+    return true;
+  }
+
+  return (
+    env.allowedHosts.includes(host) ||
+    env.allowedHosts.includes(hostname) ||
+    env.allowedHosts.some((h) => host === h || hostname === h)
+  );
+}
+
 export async function registerSecurity(app: FastifyInstance): Promise<void> {
   app.addHook('onRequest', async (req, reply) => {
     req.requestId = (req.headers['x-request-id'] as string) || randomUUID();
     reply.header('x-request-id', req.requestId);
 
-    // Reject non-loopback Host headers (DNS rebinding mitigation)
     const host = req.headers.host;
-    if (host && !isLoopbackHost(host)) {
+    if (host && !hostAllowed(host)) {
       return reply.code(403).send({
-        error: { code: 'FORBIDDEN_HOST', message: 'Only loopback hosts are allowed', requestId: req.requestId },
+        error: {
+          code: 'FORBIDDEN_HOST',
+          message: 'Host not allowed. Set ALLOW_NON_LOOPBACK=true and ALLOWED_HOSTS for remote access.',
+          requestId: req.requestId,
+        },
       });
     }
 
-    // Origin validation for browser mutating requests
+    // Origin validation for browser cross-origin requests.
+    // Same-origin production requests either omit Origin or match PUBLIC_ORIGIN / listen origin.
     const origin = req.headers.origin;
     if (origin) {
       const env = getEnv();

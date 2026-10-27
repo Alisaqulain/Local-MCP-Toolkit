@@ -12,7 +12,10 @@
     "dev:server": "npm run dev -w @local-mcp/server",
     "dev:web": "npm run dev -w @local-mcp/web",
     "build": "npm run build -w @local-mcp/shared && npm run build -w @local-mcp/server && npm run build -w @local-mcp/web",
+    "build:web": "npm run build -w @local-mcp/web",
+    "build:server": "npm run build -w @local-mcp/shared && npm run build -w @local-mcp/server",
     "start": "node scripts/start.mjs",
+    "start:prod": "npm run build && npm start",
     "lint": "eslint . --ext .ts,.tsx",
     "format": "prettier --write \"**/*.{ts,tsx,js,mjs,json,md,css}\"",
     "typecheck": "npm run typecheck -w @local-mcp/shared && npm run typecheck -w @local-mcp/server && npm run typecheck -w @local-mcp/web",
@@ -25,7 +28,7 @@
     "audit": "npm audit --omit=dev"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.51.0",

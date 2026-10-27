@@ -32,13 +32,17 @@ export function DocsPage() {
               Tool discovery and execution in the Tools page always go through the MCP client → Streamable
               HTTP transport → MCP server.
             </li>
+            <li>
+              In production, Fastify serves the UI, <code>/api</code>, and <code>/mcp</code> on one origin
+              (no separate frontend host).
+            </li>
           </ul>
         </Card>
         <Card>
           <CardTitle>Transports</CardTitle>
           <p className="mt-3 text-sm text-fg-muted">
             Streamable HTTP is exposed at <code className="font-mono text-xs">POST/GET/DELETE /mcp</code>{' '}
-            (loopback). A stdio transport is also available for desktop MCP clients via{' '}
+            (loopback by default). A stdio transport is also available for desktop MCP clients via{' '}
             <code className="font-mono text-xs">npm run mcp:stdio -w @local-mcp/server</code>.
           </p>
         </Card>

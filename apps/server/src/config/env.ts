@@ -30,12 +30,19 @@ export function detectProjectRoot(): string {
 const projectRootEarly = detectProjectRoot();
 loadDotenv({ path: path.join(projectRootEarly, '.env') });
 
+const boolish = z
+  .string()
+  .optional()
+  .transform((v) => v === 'true' || v === '1');
+
 const envSchema = z.object({
   HOST: z.string().default(DEFAULT_HOST),
   PORT: z.coerce.number().int().min(1).max(65535).default(DEFAULT_PORT),
   WEB_ORIGIN: z.string().default('http://127.0.0.1:5173'),
+  PUBLIC_ORIGIN: z.string().optional(),
   WORKSPACE_PATH: z.string().default('./data/workspace'),
   DATABASE_PATH: z.string().default('./data/db/toolkit.sqlite'),
+  WEB_DIST_PATH: z.string().default('./apps/web/dist'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   MAX_FILE_READ_BYTES: z.coerce
     .number()
@@ -52,13 +59,17 @@ const envSchema = z.object({
   MAX_QUERY_ROWS: z.coerce.number().int().min(1).max(1000).default(DEFAULT_MAX_QUERY_ROWS),
   REQUEST_BODY_LIMIT: z.coerce.number().int().min(1024).default(DEFAULT_REQUEST_BODY_LIMIT),
   SESSION_TOKEN: z.string().optional(),
-  LOCAL_AI_ENABLED: z
-    .string()
-    .optional()
-    .transform((v) => v === 'true' || v === '1'),
+  LOCAL_AI_ENABLED: boolish,
   LOCAL_AI_BASE_URL: z.string().default('http://127.0.0.1:11434'),
   LOCAL_AI_MODEL: z.string().default(''),
-  ALLOWED_ORIGINS: z.string().default('http://127.0.0.1:5173,http://localhost:5173'),
+  ALLOWED_ORIGINS: z
+    .string()
+    .default(
+      'http://127.0.0.1:5173,http://localhost:5173,http://127.0.0.1:3847,http://localhost:3847',
+    ),
+  ALLOWED_HOSTS: z.string().optional(),
+  ALLOW_NON_LOOPBACK: boolish,
+  SERVE_WEB: boolish,
   LOG_RETENTION_DAYS: z.coerce
     .number()
     .int()
@@ -70,10 +81,14 @@ const envSchema = z.object({
 export type Env = z.infer<typeof envSchema> & {
   workspaceAbsolute: string;
   databaseAbsolute: string;
+  webDistAbsolute: string;
   allowedOrigins: string[];
+  allowedHosts: string[];
   allowedExtensions: string[];
   excludedDirectories: string[];
   projectRoot: string;
+  serveWeb: boolean;
+  allowNonLoopback: boolean;
 };
 
 function resolveFromRoot(p: string, root: string): string {
@@ -87,18 +102,44 @@ export function loadEnv(projectRoot = detectProjectRoot()): Env {
     throw new Error(`Invalid environment configuration: ${msg}`);
   }
   const e = parsed.data;
+
   const allowedOrigins = e.ALLOWED_ORIGINS.split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+
+  // Same-origin production: auto-allow PUBLIC_ORIGIN and the listening origin
+  if (e.PUBLIC_ORIGIN && !allowedOrigins.includes(e.PUBLIC_ORIGIN)) {
+    allowedOrigins.push(e.PUBLIC_ORIGIN);
+  }
+  const listenOrigin = `http://${e.HOST === '0.0.0.0' ? '127.0.0.1' : e.HOST}:${e.PORT}`;
+  if (!allowedOrigins.includes(listenOrigin)) {
+    allowedOrigins.push(listenOrigin);
+  }
+  const localhostOrigin = `http://localhost:${e.PORT}`;
+  if (!allowedOrigins.includes(localhostOrigin)) {
+    allowedOrigins.push(localhostOrigin);
+  }
+
+  const allowedHosts = (e.ALLOWED_HOSTS ?? '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+
+  const serveWeb = Boolean(e.SERVE_WEB) || process.env.NODE_ENV === 'production';
+  const allowNonLoopback = Boolean(e.ALLOW_NON_LOOPBACK);
 
   return {
     ...e,
     projectRoot,
     workspaceAbsolute: resolveFromRoot(e.WORKSPACE_PATH, projectRoot),
     databaseAbsolute: resolveFromRoot(e.DATABASE_PATH, projectRoot),
+    webDistAbsolute: resolveFromRoot(e.WEB_DIST_PATH, projectRoot),
     allowedOrigins,
+    allowedHosts,
     allowedExtensions: [...DEFAULT_ALLOWED_EXTENSIONS],
     excludedDirectories: [...DEFAULT_EXCLUDED_DIRS],
+    serveWeb,
+    allowNonLoopback,
   };
 }
 
