@@ -1,0 +1,42 @@
+{
+  "name": "local-mcp-toolkit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local-first developer toolkit with real MCP server, client, and dashboard",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:server": "npm run dev -w @local-mcp/server",
+    "dev:web": "npm run dev -w @local-mcp/web",
+    "build": "npm run build -w @local-mcp/shared && npm run build -w @local-mcp/server && npm run build -w @local-mcp/web",
+    "start": "node scripts/start.mjs",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,json,md,css}\"",
+    "typecheck": "npm run typecheck -w @local-mcp/shared && npm run typecheck -w @local-mcp/server && npm run typecheck -w @local-mcp/web",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:e2e": "playwright test",
+    "test:watch": "vitest",
+    "db:migrate": "npm run db:migrate -w @local-mcp/server",
+    "audit": "npm audit --omit=dev"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.51.0",
+    "@types/node": "^22.13.10",
+    "@typescript-eslint/eslint-plugin": "^8.26.1",
+    "@typescript-eslint/parser": "^8.26.1",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^10.1.1",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.9"
+  }
+}
