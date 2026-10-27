@@ -22,9 +22,14 @@ import { sessionInfo } from '../middleware/security.js';
 import { checkDatabaseHealth } from '../db/database.js';
 import { APP_VERSION } from '@local-mcp/shared';
 import { getStartedAt } from '../modules/statistics/service.js';
+import { isVercelRuntime } from '../platform/runtime.js';
 
-function baseUrl(host: string, port: number): string {
-  return `http://${host}:${port}`;
+function mcpHttpBase(): string | undefined {
+  // On Vercel use in-memory MCP (no self-HTTP). Locally use loopback Fastify.
+  if (isVercelRuntime()) return undefined;
+  const env = getEnv();
+  const host = env.HOST === '0.0.0.0' ? '127.0.0.1' : env.HOST;
+  return `http://${host}:${env.PORT}`;
 }
 
 export async function registerApiRoutes(app: FastifyInstance): Promise<void> {
@@ -37,14 +42,14 @@ export async function registerApiRoutes(app: FastifyInstance): Promise<void> {
     databaseHealthy: checkDatabaseHealth(),
     mcpSessions: getActiveSessionCount(),
     mcpClientConnected: mcpClientService.isConnected(),
+    runtime: isVercelRuntime() ? 'vercel' : 'node',
   }));
 
   app.get('/api/session', async () => sessionInfo());
 
   app.get('/api/overview', async () => {
-    // Ensure tools are registered (via a live MCP client session)
     try {
-      await mcpClientService.ensureConnected(baseUrl(env.HOST, env.PORT));
+      await mcpClientService.ensureConnected(mcpHttpBase());
     } catch {
       /* overview still works without MCP client */
     }
@@ -54,8 +59,8 @@ export async function registerApiRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.get('/api/tools', async () => {
-    await mcpClientService.ensureConnected(baseUrl(env.HOST, env.PORT));
-    const listed = await mcpClientService.listTools(baseUrl(env.HOST, env.PORT));
+    await mcpClientService.ensureConnected(mcpHttpBase());
+    const listed = await mcpClientService.listTools(mcpHttpBase());
     const meta = listToolMeta();
     const metaByName = new Map(meta.map((m) => [m.name, m]));
     const tools = listed.tools.map((t) => {
@@ -80,7 +85,7 @@ export async function registerApiRoutes(app: FastifyInstance): Promise<void> {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const args = (body.arguments ?? body) as Record<string, unknown>;
     try {
-      const result = await mcpClientService.callTool(baseUrl(env.HOST, env.PORT), name, args);
+      const result = await mcpClientService.callTool(mcpHttpBase(), name, args);
       return { data: result };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Tool execution failed';
@@ -94,8 +99,8 @@ export async function registerApiRoutes(app: FastifyInstance): Promise<void> {
     let tools = 0;
     let connected = false;
     try {
-      await mcpClientService.ensureConnected(baseUrl(env.HOST, env.PORT));
-      const listed = await mcpClientService.listTools(baseUrl(env.HOST, env.PORT));
+      await mcpClientService.ensureConnected(mcpHttpBase());
+      const listed = await mcpClientService.listTools(mcpHttpBase());
       tools = listed.tools.length;
       connected = true;
     } catch {

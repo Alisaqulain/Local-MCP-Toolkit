@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { getEnv } from '../config/env.js';
 import { getSessionToken, isLoopbackHost, verifySessionToken } from '../security/session.js';
+import { isVercelRuntime } from '../platform/runtime.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -17,12 +18,14 @@ function hostAllowed(hostHeader: string | undefined): boolean {
 
   if (isLoopbackHost(hostHeader)) return true;
 
-  if (!env.allowNonLoopback) return false;
-
-  if (env.allowedHosts.length === 0) {
-    // Non-loopback allowed but no explicit list — accept any host (operator opted in)
+  // Vercel deployment / preview hosts
+  if (isVercelRuntime() && (hostname.endsWith('.vercel.app') || hostname.includes('vercel'))) {
     return true;
   }
+
+  if (!env.allowNonLoopback) return false;
+
+  if (env.allowedHosts.length === 0) return true;
 
   return (
     env.allowedHosts.includes(host) ||
@@ -47,16 +50,19 @@ export async function registerSecurity(app: FastifyInstance): Promise<void> {
       });
     }
 
-    // Origin validation for browser cross-origin requests.
-    // Same-origin production requests either omit Origin or match PUBLIC_ORIGIN / listen origin.
     const origin = req.headers.origin;
     if (origin) {
       const env = getEnv();
-      if (!env.allowedOrigins.includes(origin)) {
-        return reply.code(403).send({
-          error: { code: 'FORBIDDEN_ORIGIN', message: 'Origin not allowed', requestId: req.requestId },
-        });
+      if (env.allowedOrigins.includes(origin)) return;
+      try {
+        const hostname = new URL(origin).hostname;
+        if (isVercelRuntime() && hostname.endsWith('.vercel.app')) return;
+      } catch {
+        /* fall through */
       }
+      return reply.code(403).send({
+        error: { code: 'FORBIDDEN_ORIGIN', message: 'Origin not allowed', requestId: req.requestId },
+      });
     }
   });
 }

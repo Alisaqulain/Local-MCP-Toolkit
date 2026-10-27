@@ -5,6 +5,7 @@ import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { createMcpServer } from './server.js';
 import { logger } from '../logging/logger.js';
 import { getEnv } from '../config/env.js';
+import { isVercelRuntime } from '../platform/runtime.js';
 
 type Session = {
   transport: StreamableHTTPServerTransport;
@@ -32,8 +33,11 @@ function allowedHostsForRequest(req: FastifyRequest): string[] {
   const hostHeader = req.headers.host;
   const base = ['127.0.0.1', 'localhost', '[::1]', '::1'];
   const withPorts = [...base];
-  if (hostHeader && isLoopbackHostHeader(hostHeader)) {
+  // Always allow the request Host (needed for Vercel + custom domains)
+  if (hostHeader) {
     withPorts.push(hostHeader);
+    const bare = hostHeader.split(':')[0];
+    if (bare) withPorts.push(bare);
   }
   try {
     const env = getEnv();
@@ -42,16 +46,6 @@ function allowedHostsForRequest(req: FastifyRequest): string[] {
     /* ignore during early boot */
   }
   return Array.from(new Set(withPorts));
-}
-
-function isLoopbackHostHeader(host: string): boolean {
-  const h = host.toLowerCase();
-  return (
-    h.startsWith('127.0.0.1') ||
-    h.startsWith('localhost') ||
-    h.startsWith('[::1]') ||
-    h.startsWith('::1')
-  );
 }
 
 export function registerMcpHttpTransport(app: FastifyInstance): void {
@@ -90,15 +84,19 @@ async function handlePost(req: FastifyRequest, reply: FastifyReply): Promise<voi
       }
 
       const server = createMcpServer();
+      // Stateless on Vercel — in-memory sessions do not survive across isolates
+      const stateless = isVercelRuntime();
       const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
+        sessionIdGenerator: stateless ? undefined : () => randomUUID(),
         enableJsonResponse: true,
-        enableDnsRebindingProtection: true,
+        enableDnsRebindingProtection: !stateless,
         allowedHosts: allowedHostsForRequest(req),
-        onsessioninitialized: (newSid) => {
-          sessions.set(newSid, { transport, server });
-          logger.info({ sid: newSid }, 'MCP session initialized');
-        },
+        onsessioninitialized: stateless
+          ? undefined
+          : (newSid) => {
+              sessions.set(newSid, { transport, server });
+              logger.info({ sid: newSid }, 'MCP session initialized');
+            },
       });
 
       transport.onclose = () => {

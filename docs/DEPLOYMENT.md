@@ -1,92 +1,50 @@
 # Deployment
 
-## Target architecture (single process)
-
-```mermaid
-flowchart LR
-  Browser -->|one origin| Fastify
-  Fastify -->|"/api/*"| API
-  Fastify -->|"/mcp"| MCP
-  Fastify -->|"/* static + SPA"| WebDist[apps/web/dist]
-  API --> SQLite[(local SQLite)]
-  API --> WS[local workspace FS]
-  MCP --> SQLite
-  MCP --> WS
-```
-
-Production startup:
+## Local / VPS (recommended for full fidelity)
 
 ```bash
 npm run build
 npm start
 ```
 
-One Node process (`apps/server`) serves:
+One Node process serves UI + `/api` + `/mcp` with durable SQLite and workspace disk.
 
-- REST `/api/*`
-- MCP Streamable HTTP `/mcp`
-- Vite-built UI from `apps/web/dist`
+## Vercel (Services — supported with limits)
 
-Development stays two processes (`npm run dev`): Vite on `:5173` proxies `/api` and `/mcp` to Fastify on `:3847`.
+This repo is configured for **one Vercel project with two services**:
 
-## Why not Vercel (serverless)?
+| Service | Public? | Path | Role |
+| --- | --- | --- | --- |
+| `web` | yes | `/` (catch-all) | Vite static SPA |
+| `server` | yes | `/api/*`, `/mcp` | Fastify API + MCP |
 
-This toolkit is **not compatible** with a fully functional Vercel serverless deployment:
+**No service bindings** — the browser calls same-origin `/api/*` via top-level rewrites. The server does not call the web service. Dashboard MCP uses **in-memory MCP transports** on Vercel (still real MCP protocol), because serverless cannot reliably self-HTTP to localhost.
 
-| Requirement | Vercel serverless | This app |
+### Import on Vercel
+
+1. Import the GitHub repo.
+2. Choose **Services / multi-service** (or let it detect `vercel.json`).
+3. Confirm services named **`server`** and **`web`**.
+4. Deploy.
+
+### Environment variables (Vercel project)
+
+Set on the project (both services inherit):
+
+| Name | Suggested | Notes |
 | --- | --- | --- |
-| Persistent SQLite file | Ephemeral / read-only FS | Required |
-| Workspace filesystem tools | No access to your PC; no durable disk | Required for local tools |
-| Long-lived MCP sessions | Request-scoped / short-lived | In-memory session map |
-| `reply.hijack()` / streaming MCP | Fragile / unsupported patterns | Used by Streamable HTTP |
-| Single always-on Node process | Functions scale to zero | Assumed |
+| `SESSION_TOKEN` | long random string | Stable across cold starts |
+| `ALLOW_NON_LOOPBACK` | `true` | Auto-enabled when `VERCEL=1` |
+| `PUBLIC_ORIGIN` | `https://your-app.vercel.app` | Optional CORS helper |
+| `LOG_LEVEL` | `info` | |
 
-A multi-service Vercel setup (separate frontend + backend) was intentionally avoided. Even a “single” Vercel project cannot give this app a durable local disk or your machine’s files.
+`WORKSPACE_PATH` / `DATABASE_PATH` default to `/tmp/local-mcp/...` on Vercel.
 
-**Deployed remote tools cannot access your personal computer.** Filesystem MCP tools only see the workspace directory on the machine where the Node process runs.
+### Hard limits on Vercel
 
-## Recommended hosting (least disruptive)
+- **Ephemeral storage** — SQLite + workspace under `/tmp` reset on cold starts. Not your PC’s files.
+- **No durable disk** — notes/history may vanish between isolates.
+- **MCP HTTP sessions** — Streamable HTTP runs **stateless** on Vercel; dashboard uses in-memory MCP.
+- **Filesystem tools** only see the `/tmp` sandbox, never your laptop.
 
-Prefer a **persistent Node.js host** (same `npm run build && npm start` pipeline):
-
-1. **Local / LAN** (best fit) — `HOST=127.0.0.1` or bind LAN with `ALLOW_NON_LOOPBACK=true`
-2. **VPS / Docker** — Fly.io, Railway, Render (native Node), DigitalOcean, etc.
-3. **Self-hosted reverse proxy** — Caddy/Nginx → Node on one origin
-
-Example production env for a remote Node host:
-
-```env
-HOST=0.0.0.0
-PORT=3847
-ALLOW_NON_LOOPBACK=true
-PUBLIC_ORIGIN=https://toolkit.example.com
-ALLOWED_HOSTS=toolkit.example.com
-ALLOWED_ORIGINS=https://toolkit.example.com
-WORKSPACE_PATH=/var/lib/local-mcp/workspace
-DATABASE_PATH=/var/lib/local-mcp/toolkit.sqlite
-SESSION_TOKEN=<long-random-secret>
-SERVE_WEB=true
-NODE_ENV=production
-```
-
-Mount durable volumes for `WORKSPACE_PATH` and `DATABASE_PATH`.
-
-## Docker (optional sketch)
-
-```dockerfile
-FROM node:24-bookworm-slim
-WORKDIR /app
-COPY package*.json ./
-COPY apps ./apps
-COPY packages ./packages
-COPY data ./data
-COPY scripts ./scripts
-RUN npm ci && npm run build
-ENV NODE_ENV=production SERVE_WEB=true HOST=0.0.0.0 PORT=3847
-EXPOSE 3847
-CMD ["npm", "start"]
-```
-
-## Vercel config in this repo
-
-`vercel.json` exists only to document that this project is **not** intended for Vercel serverless. Do not expect filesystem tools or SQLite persistence there. Use a persistent Node host instead.
+For durable data, move off Vercel serverless to a persistent Node host (or add a cloud DB — not included unless you ask).

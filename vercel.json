@@ -1,7 +1,57 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": null,
-  "installCommand": "npm install",
-  "buildCommand": "node -e \"console.error('\\nLocal MCP Toolkit requires a persistent Node.js process.\\nReason: SQLite + workspace filesystem + in-memory MCP sessions.\\nVercel serverless (and multi-service Vercel) is not supported.\\nUse: npm run build && npm start on a VPS/Docker/local host.\\nSee docs/DEPLOYMENT.md\\n'); process.exit(1)\"",
-  "outputDirectory": "apps/web/dist"
+  "services": {
+    "server": {
+      "root": "apps/server",
+      "framework": "fastify",
+      "entrypoint": "dist/vercel.js",
+      "installCommand": "cd ../.. && npm install",
+      "buildCommand": "cd ../.. && npm run build -w @local-mcp/shared && npm run build -w @local-mcp/server",
+      "functions": {
+        "dist/vercel.js": {
+          "maxDuration": 60,
+          "memory": 1024
+        }
+      }
+    },
+    "web": {
+      "root": "apps/web",
+      "framework": "vite",
+      "installCommand": "cd ../.. && npm install",
+      "buildCommand": "cd ../.. && npm run build -w @local-mcp/shared && npm run build -w @local-mcp/web",
+      "outputDirectory": "dist",
+      "rewrites": [
+        {
+          "source": "/((?!assets/).*)",
+          "destination": "/index.html"
+        }
+      ]
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": {
+        "service": "server"
+      }
+    },
+    {
+      "source": "/mcp",
+      "destination": {
+        "service": "server"
+      }
+    },
+    {
+      "source": "/mcp/(.*)",
+      "destination": {
+        "service": "server"
+      }
+    },
+    {
+      "source": "/(.*)",
+      "destination": {
+        "service": "web"
+      }
+    }
+  ]
 }

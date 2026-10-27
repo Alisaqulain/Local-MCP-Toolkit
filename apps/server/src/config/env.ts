@@ -24,6 +24,9 @@ export function detectProjectRoot(): string {
     if (parent === dir) break;
     dir = parent;
   }
+  // On Vercel the service cwd is apps/server — walk up to monorepo root if present
+  const up = path.resolve(process.cwd(), '../..');
+  if (fs.existsSync(path.join(up, 'package.json'))) return up;
   return process.cwd();
 }
 
@@ -40,8 +43,8 @@ const envSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(DEFAULT_PORT),
   WEB_ORIGIN: z.string().default('http://127.0.0.1:5173'),
   PUBLIC_ORIGIN: z.string().optional(),
-  WORKSPACE_PATH: z.string().default('./data/workspace'),
-  DATABASE_PATH: z.string().default('./data/db/toolkit.sqlite'),
+  WORKSPACE_PATH: z.string().optional(),
+  DATABASE_PATH: z.string().optional(),
   WEB_DIST_PATH: z.string().default('./apps/web/dist'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   MAX_FILE_READ_BYTES: z.coerce
@@ -79,6 +82,8 @@ const envSchema = z.object({
 });
 
 export type Env = z.infer<typeof envSchema> & {
+  WORKSPACE_PATH: string;
+  DATABASE_PATH: string;
   workspaceAbsolute: string;
   databaseAbsolute: string;
   webDistAbsolute: string;
@@ -95,6 +100,10 @@ function resolveFromRoot(p: string, root: string): string {
   return path.isAbsolute(p) ? path.normalize(p) : path.resolve(root, p);
 }
 
+function isVercel(): boolean {
+  return process.env.VERCEL === '1' || process.env.VERCEL === 'true';
+}
+
 export function loadEnv(projectRoot = detectProjectRoot()): Env {
   const parsed = envSchema.safeParse(process.env);
   if (!parsed.success) {
@@ -102,37 +111,52 @@ export function loadEnv(projectRoot = detectProjectRoot()): Env {
     throw new Error(`Invalid environment configuration: ${msg}`);
   }
   const e = parsed.data;
+  const onVercel = isVercel();
+
+  // Ephemeral storage on Vercel serverless (only /tmp is writable)
+  const workspacePath =
+    e.WORKSPACE_PATH ||
+    (onVercel ? '/tmp/local-mcp/workspace' : './data/workspace');
+  const databasePath =
+    e.DATABASE_PATH ||
+    (onVercel ? '/tmp/local-mcp/toolkit.sqlite' : './data/db/toolkit.sqlite');
 
   const allowedOrigins = e.ALLOWED_ORIGINS.split(',')
     .map((s) => s.trim())
     .filter(Boolean);
 
-  // Same-origin production: auto-allow PUBLIC_ORIGIN and the listening origin
   if (e.PUBLIC_ORIGIN && !allowedOrigins.includes(e.PUBLIC_ORIGIN)) {
     allowedOrigins.push(e.PUBLIC_ORIGIN);
   }
+  if (process.env.VERCEL_URL) {
+    const u = `https://${process.env.VERCEL_URL.replace(/^https?:\/\//, '')}`;
+    if (!allowedOrigins.includes(u)) allowedOrigins.push(u);
+  }
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    const u = `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL.replace(/^https?:\/\//, '')}`;
+    if (!allowedOrigins.includes(u)) allowedOrigins.push(u);
+  }
+
   const listenOrigin = `http://${e.HOST === '0.0.0.0' ? '127.0.0.1' : e.HOST}:${e.PORT}`;
-  if (!allowedOrigins.includes(listenOrigin)) {
-    allowedOrigins.push(listenOrigin);
-  }
+  if (!allowedOrigins.includes(listenOrigin)) allowedOrigins.push(listenOrigin);
   const localhostOrigin = `http://localhost:${e.PORT}`;
-  if (!allowedOrigins.includes(localhostOrigin)) {
-    allowedOrigins.push(localhostOrigin);
-  }
+  if (!allowedOrigins.includes(localhostOrigin)) allowedOrigins.push(localhostOrigin);
 
   const allowedHosts = (e.ALLOWED_HOSTS ?? '')
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean);
 
-  const serveWeb = Boolean(e.SERVE_WEB) || process.env.NODE_ENV === 'production';
-  const allowNonLoopback = Boolean(e.ALLOW_NON_LOOPBACK);
+  const allowNonLoopback = Boolean(e.ALLOW_NON_LOOPBACK) || onVercel;
+  const serveWeb = onVercel ? false : Boolean(e.SERVE_WEB) || process.env.NODE_ENV === 'production';
 
   return {
     ...e,
+    WORKSPACE_PATH: workspacePath,
+    DATABASE_PATH: databasePath,
     projectRoot,
-    workspaceAbsolute: resolveFromRoot(e.WORKSPACE_PATH, projectRoot),
-    databaseAbsolute: resolveFromRoot(e.DATABASE_PATH, projectRoot),
+    workspaceAbsolute: resolveFromRoot(workspacePath, projectRoot),
+    databaseAbsolute: resolveFromRoot(databasePath, projectRoot),
     webDistAbsolute: resolveFromRoot(e.WEB_DIST_PATH, projectRoot),
     allowedOrigins,
     allowedHosts,
@@ -170,20 +194,10 @@ export function updateRuntimeSettings(
   }>,
 ): Env {
   const env = getEnv();
-  if (patch.maxFileReadBytes != null) {
-    env.MAX_FILE_READ_BYTES = patch.maxFileReadBytes;
-  }
-  if (patch.maxSearchResults != null) {
-    env.MAX_SEARCH_RESULTS = patch.maxSearchResults;
-  }
-  if (patch.allowedExtensions) {
-    env.allowedExtensions = patch.allowedExtensions;
-  }
-  if (patch.excludedDirectories) {
-    env.excludedDirectories = patch.excludedDirectories;
-  }
-  if (patch.logRetentionDays != null) {
-    env.LOG_RETENTION_DAYS = patch.logRetentionDays;
-  }
+  if (patch.maxFileReadBytes != null) env.MAX_FILE_READ_BYTES = patch.maxFileReadBytes;
+  if (patch.maxSearchResults != null) env.MAX_SEARCH_RESULTS = patch.maxSearchResults;
+  if (patch.allowedExtensions) env.allowedExtensions = patch.allowedExtensions;
+  if (patch.excludedDirectories) env.excludedDirectories = patch.excludedDirectories;
+  if (patch.logRetentionDays != null) env.LOG_RETENTION_DAYS = patch.logRetentionDays;
   return env;
 }
